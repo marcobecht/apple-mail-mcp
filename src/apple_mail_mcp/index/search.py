@@ -223,6 +223,7 @@ def search_fts(
     mailbox: str | None = None,
     limit: int = 20,
     *,
+    column: str | None = None,
     exclude_mailboxes: list[str] | None = None,
     _is_retry: bool = False,
 ) -> list[SearchResult]:
@@ -235,6 +236,9 @@ def search_fts(
         account: Optional account filter
         mailbox: Optional mailbox filter
         limit: Maximum results (default: 20)
+        column: Optional FTS5 column filter ("subject", "sender",
+            or "content"). Prepended as ``column:query`` after
+            sanitization so the prefix isn't escaped.
 
     Returns:
         List of SearchResult ordered by relevance (BM25 score)
@@ -244,6 +248,10 @@ def search_fts(
 
     # Sanitize query for FTS5 (skip on retry to avoid double-escaping)
     safe_query = query if _is_retry else sanitize_fts_query(query)
+
+    # Apply column filter AFTER sanitization so the colon isn't escaped
+    if column and column in ("subject", "sender", "content"):
+        safe_query = f"{column}:{safe_query}"
 
     if not safe_query:
         return []
@@ -309,6 +317,7 @@ def search_fts(
                 account=account,
                 mailbox=mailbox,
                 limit=limit,
+                column=column,
                 exclude_mailboxes=exclude_mailboxes,
                 _is_retry=True,
             )
