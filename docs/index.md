@@ -1,25 +1,24 @@
 # Apple Mail MCP
 
-**A fast MCP server for Apple Mail** — disk-first email reading, batch JXA property fetching for **87x faster** multi-email performance, and an FTS5 search index for **700–3500x faster** body search.
+The only Apple Mail MCP server with **full-text email search**. Reliable on large mailboxes where other servers timeout — with 6 tools for reading, searching, and extracting email content.
 
 ---
 
 ## Why Apple Mail MCP?
 
-| | Apple Mail MCP | Typical alternatives |
-|---|---|---|
-| **Fetch single email** | 6ms (disk) | unsupported |
-| **Fetch 50 emails** | 301ms | 13,800ms+ (or crash) |
-| **Search (subject)** | 10ms (FTS5) | 148–166ms |
-| **Search (body)** | 22ms (FTS5) | unsupported |
-| **Architecture** | Disk-first + batch JXA + FTS5 | Per-message AppleScript |
+Tested against [6 other Apple Mail MCP servers](benchmarks.md) on a 30K+ email mailbox:
 
-> Benchmarked against [5 other Apple Mail MCP servers](benchmarks.md). We're the **fastest at search** across all scenarios and the **only one with body search**.
+- **Only server** that completes all operations without timing out
+- **Only server** with full-text body search (FTS5 index, ~20ms)
+- **5ms** single email fetch via disk-first `.emlx` reading
+- **7–9ms** subject search via FTS5 (vs 230ms+ for AppleScript-based servers)
+
+![Capability Matrix](benchmark_overview.png)
 
 ## Key Features
 
 - **6 focused MCP tools** — list accounts, list mailboxes, get emails, get email, search, get attachment
-- **Unified filtering** — unread, flagged, today, this week
+- **Unified filtering** — unread, flagged, today, last 7 days
 - **FTS5 search index** — full-text body search in ~2ms with BM25 ranking
 - **Real-time updates** — `--watch` flag for automatic index updates
 - **Disk-first sync** — fast filesystem scanning instead of slow JXA queries

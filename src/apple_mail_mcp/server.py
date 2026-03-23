@@ -2,9 +2,9 @@
 Apple Mail MCP Server
 
 3-layer architecture for fast email access:
-1. Disk-first reads — single emails via .emlx parsing (~1-5ms, no JXA)
-2. FTS5 search — full-text body search in ~2ms with BM25 ranking
-3. JXA fallback — batch property fetching for multi-email ops (87x faster)
+1. Disk-first reads — single emails via .emlx parsing (~5ms, no JXA)
+2. FTS5 search — full-text body search in ~20ms with BM25 ranking
+3. JXA fallback — batch property fetching for multi-email listing
 
 TOOLS (6 total):
 - list_accounts() - List email accounts
@@ -211,7 +211,9 @@ async def list_mailboxes(account: str | None = None) -> list[Mailbox]:
 async def get_emails(
     account: str | None = None,
     mailbox: str | None = None,
-    filter: Literal["all", "unread", "flagged", "today", "this_week"] = "all",
+    filter: Literal[
+        "all", "unread", "flagged", "today", "last_7_days", "this_week"
+    ] = "all",
     limit: int = 50,
 ) -> list[EmailSummary]:
     """
@@ -230,7 +232,8 @@ async def get_emails(
             - "unread": Only unread emails
             - "flagged": Only flagged emails
             - "today": Emails received today
-            - "this_week": Emails received in the last 7 days
+            - "last_7_days": Emails received in the last 7 days
+            - "this_week": Alias for last_7_days
         limit: Maximum number of emails to return (default: 50)
 
     Returns:
@@ -254,7 +257,7 @@ async def get_emails(
         query = query.where("data.flaggedStatus[i] === true")
     elif filter == "today":
         query = query.where("data.dateReceived[i] >= MailCore.today()")
-    elif filter == "this_week":
+    elif filter in ("last_7_days", "this_week"):
         query = query.where("data.dateReceived[i] >= MailCore.daysAgo(7)")
 
     query = query.order_by("date_received", descending=True).limit(limit)
@@ -525,11 +528,23 @@ JSON.stringify({{
         )
         return _enrich_attachments(result)
     except TimeoutError:
+        if account and mailbox:
+            hint = (
+                "The email may have been deleted or moved, "
+                "or the mailbox is too large for JXA to scan. "
+                "Try 'apple-mail-mcp rebuild' to refresh the index."
+            )
+        elif account or mailbox:
+            hint = (
+                "Try providing both account and mailbox for "
+                "faster lookup, or rebuild the index."
+            )
+        else:
+            hint = "Provide account/mailbox for faster lookup."
         raise TimeoutError(
-            f"Strategy 3 timed out after {STRATEGY3_TIMEOUT}s "
-            f"searching up to {STRATEGY3_MAX_MAILBOXES} mailboxes "
-            f"for message {message_id}. "
-            f"Provide account/mailbox for faster lookup."
+            f"Could not find message {message_id} within "
+            f"{STRATEGY3_TIMEOUT}s (searched up to "
+            f"{STRATEGY3_MAX_MAILBOXES} mailboxes). {hint}"
         ) from None
 
 
@@ -595,6 +610,12 @@ async def get_attachment(
         >>> get_attachment(12345)
         {"links": [{"url": "https://...", "text": "Click"}]}
     """
+    # Clean up old cached attachments (best-effort, non-blocking)
+    try:
+        await asyncio.to_thread(_cleanup_old_attachments)
+    except Exception:
+        pass  # Cleanup failure should not block attachment extraction
+
     # Look up emlx_path from the index, scoped by account/mailbox
     # when provided (message_id is only unique within a mailbox)
     manager = _get_index_manager()
@@ -635,8 +656,9 @@ async def get_attachment(
 
     raw_bytes, mime_type = result
 
-    # Save to unique subdirectory
+    # Save to unique subdirectory (0o700 for sensitive content)
     ATTACHMENT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    ATTACHMENT_CACHE_DIR.chmod(0o700)
     save_dir = _Path(tempfile.mkdtemp(dir=ATTACHMENT_CACHE_DIR))
     safe_name = _Path(filename).name  # strip directory components
     file_path = save_dir / safe_name
@@ -779,14 +801,21 @@ async def search(
             elif scope == "sender":
                 fts_column = "sender"
 
-            results = manager.search(
-                query,
-                account=search_account,
-                mailbox=fts_mailbox,
-                limit=limit,
-                exclude_mailboxes=exclude_mailboxes,
-                column=fts_column,
-            )
+            try:
+                results = manager.search(
+                    query,
+                    account=search_account,
+                    mailbox=fts_mailbox,
+                    limit=limit,
+                    exclude_mailboxes=exclude_mailboxes,
+                    column=fts_column,
+                )
+            except Exception as e:
+                err_msg = str(e) or repr(e)
+                raise RuntimeError(
+                    f"Search index error: {err_msg}. "
+                    f"Try 'apple-mail-mcp rebuild' if this persists."
+                ) from e
             return _maybe_hint(
                 [
                     {

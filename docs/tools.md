@@ -73,7 +73,8 @@ Get emails from a mailbox with optional filtering. This is the primary tool for 
 | `unread` | Only unread emails |
 | `flagged` | Only flagged emails |
 | `today` | Emails received today |
-| `this_week` | Emails from the last 7 days |
+| `last_7_days` | Emails from the last 7 days |
+| `this_week` | Alias for `last_7_days` |
 
 **Returns:** List of email summaries sorted by date (newest first), each with: `id`, `subject`, `sender`, `date_received`, `read`, `flagged`.
 

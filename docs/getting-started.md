@@ -42,7 +42,7 @@ Get Apple Mail MCP running with Claude in under 2 minutes.
 
 ## Step 2: Build the Search Index (Recommended)
 
-The FTS5 index makes body search **700–3500x faster** (~2ms vs ~7s). It's optional but highly recommended.
+The FTS5 index enables **full-text body search** (~20ms) — without it, only subject and sender search is available. It's optional but highly recommended.
 
 ### Grant Full Disk Access
 

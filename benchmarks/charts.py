@@ -169,6 +169,164 @@ def generate_chart(
     return png_path
 
 
+# ─── Overview (capability matrix) ────────────────────────────
+
+# Friendly display names for the overview chart
+COMPETITOR_LABELS = {
+    "imdinu": "apple-mail-mcp (ours)",
+    "rusty": "rusty (Rust)",
+    "patrickfreyer": "patrickfreyer",
+    "dhravya": "dhravya (archived)",
+    "smorgan": "s-morgan-jeffries",
+    "attilagyorffy": "attilagyorffy (Go)",
+    "che-apple-mail": "che (Swift)",
+}
+
+# Display order: us first, then by interest
+COMPETITOR_ORDER = [
+    "imdinu",
+    "rusty",
+    "patrickfreyer",
+    "attilagyorffy",
+    "smorgan",
+    "dhravya",
+]
+
+SCENARIO_SHORT = {
+    "cold_start": "Cold Start",
+    "list_accounts": "List\nAccounts",
+    "get_emails": "Fetch 50\nEmails",
+    "get_email": "Fetch\nSingle Email",
+    "search_subject": "Search\nSubject",
+    "search_body": "Search\nBody",
+}
+
+# Color codes: 0 = success, 1 = timeout/error, 2 = not supported
+COLOR_MAP = {0: "#22c55e", 1: "#ef4444", 2: "#d1d5db"}
+
+
+def _classify_result(
+    results: list[dict], competitor: str, scenario: str
+) -> tuple[int, str]:
+    """Classify a benchmark result as (code, label).
+
+    Returns (0, "Xms"), (1, "TIMEOUT"), (1, "ERROR"), or (2, "—").
+    """
+    matches = [
+        r
+        for r in results
+        if r["competitor"] == competitor and r["scenario"] == scenario
+    ]
+    if not matches:
+        return 2, "—"
+    r = matches[0]
+    if r["success"]:
+        return 0, f"{r['median_ms']:.0f}ms"
+    err = r.get("error", "")
+    if "Not supported" in err:
+        return 2, "—"
+    if "No such file" in err:
+        return 2, "N/A"
+    if "timeout" in err.lower() or "too slow" in err.lower():
+        return 1, "TIMEOUT"
+    return 1, "ERROR"
+
+
+def generate_overview_chart(
+    results: list[dict],
+    output_dir: Path,
+) -> Path:
+    """Generate the capability matrix overview chart."""
+    scenarios = list(SCENARIO_SHORT.keys())
+    # Filter to competitors present in results
+    present = {r["competitor"] for r in results}
+    competitors = [c for c in COMPETITOR_ORDER if c in present]
+
+    # Build grid (rows = competitors, cols = scenarios)
+    # Reverse so "ours" appears at top in the chart
+    z_values: list[list[int]] = []
+    annotations: list[list[str]] = []
+    for comp in reversed(competitors):
+        row_z = []
+        row_a = []
+        for sc in scenarios:
+            code, label = _classify_result(results, comp, sc)
+            row_z.append(code)
+            row_a.append(label)
+        z_values.append(row_z)
+        annotations.append(row_a)
+
+    y_labels = [
+        COMPETITOR_LABELS.get(c, c) for c in reversed(competitors)
+    ]
+    x_labels = [SCENARIO_SHORT[s] for s in scenarios]
+
+    # Custom colorscale: 0=green, 0.5=red, 1=gray
+    colorscale = [
+        [0.0, COLOR_MAP[0]],
+        [0.33, COLOR_MAP[0]],
+        [0.34, COLOR_MAP[1]],
+        [0.66, COLOR_MAP[1]],
+        [0.67, COLOR_MAP[2]],
+        [1.0, COLOR_MAP[2]],
+    ]
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=z_values,
+            x=x_labels,
+            y=y_labels,
+            colorscale=colorscale,
+            showscale=False,
+            zmin=0,
+            zmax=2,
+            xgap=3,
+            ygap=3,
+        )
+    )
+
+    # Add text annotations
+    for i, row in enumerate(annotations):
+        for j, text in enumerate(row):
+            font_color = "#ffffff" if z_values[i][j] < 2 else "#6b7280"
+            fig.add_annotation(
+                x=x_labels[j],
+                y=y_labels[i],
+                text=f"<b>{text}</b>",
+                showarrow=False,
+                font=dict(size=13, color=font_color),
+            )
+
+    fig.update_layout(
+        title=dict(
+            text="Apple Mail MCP Servers — Capability Matrix (30K+ mailbox)",
+            font=dict(size=16, color="#111827"),
+            x=0.0,
+        ),
+        xaxis=dict(
+            side="top",
+            tickfont=dict(size=11),
+        ),
+        yaxis=dict(
+            tickfont=dict(size=12),
+            automargin=True,
+        ),
+        plot_bgcolor=COLOR_BG,
+        paper_bgcolor=COLOR_BG,
+        margin=dict(l=10, r=20, t=80, b=30),
+        height=max(300, 50 * len(competitors) + 120),
+        width=750,
+    )
+
+    png_path = output_dir / "benchmark_overview.png"
+    fig.write_image(str(png_path), scale=2)
+
+    html_path = RESULTS_DIR / "benchmark_overview.html"
+    fig.write_html(str(html_path), include_plotlyjs="cdn")
+
+    return png_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate benchmark charts from results"
@@ -208,6 +366,13 @@ def main() -> None:
     ]
 
     generated = []
+
+    # Overview chart (capability matrix)
+    overview = generate_overview_chart(results, output_dir)
+    print(f"  Generated {overview.name}")
+    generated.append(overview)
+
+    # Per-scenario charts
     for scenario in scenarios:
         png = generate_chart(scenario, results, output_dir)
         if png:

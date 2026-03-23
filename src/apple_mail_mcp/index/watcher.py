@@ -291,6 +291,11 @@ class IndexWatcher:
                     except (ValueError, UnicodeDecodeError) as e:
                         logger.warning("Error parsing %s: %s", path, e)
                         break
+                    except Exception as e:
+                        logger.warning(
+                            "Unexpected error parsing %s: %s", path, e
+                        )
+                        break
 
                 if email:
                     try:

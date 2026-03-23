@@ -113,6 +113,24 @@ install_attilagyorffy() {
 }
 install_or_skip "attilagyorffy/apple-mail-mcp" install_attilagyorffy
 
+# ─── 7. like-a-freedom/rusty_apple_mail_mcp (Rust) ──────────
+install_rusty() {
+    if ! command -v cargo &>/dev/null; then
+        warn "cargo not found — skipping rusty_apple_mail_mcp"
+        return 1
+    fi
+    local dir="$CACHE_DIR/rusty-apple-mail-mcp"
+    if [ -d "$dir" ]; then
+        cd "$dir" && git pull --quiet
+    else
+        git clone --quiet --depth 1 \
+            https://github.com/like-a-freedom/rusty_apple_mail_mcp.git "$dir"
+    fi
+    cd "$dir"
+    cargo build --release 2>/dev/null
+}
+install_or_skip "rusty_apple_mail_mcp" install_rusty
+
 # ─── Summary ─────────────────────────────────────────────────
 echo ""
 log "Setup complete"

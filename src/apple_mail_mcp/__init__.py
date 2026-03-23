@@ -1,9 +1,9 @@
-"""Apple Mail MCP - Fast MCP server for Apple Mail.
+"""Apple Mail MCP — the only Apple Mail MCP server with full-text email search.
 
 Features:
-- Disk-first email reading (~1-5ms via .emlx parsing, no JXA needed)
-- 87x faster batch email fetching via JXA property fetching
-- FTS5 full-text search index for 700-3500x faster body search
+- Disk-first email reading (~5ms via .emlx parsing, no JXA needed)
+- Full-text body search via FTS5 index (~20ms)
+- Reliable on large mailboxes (30K+) where other servers timeout
 
 Usage:
     apple-mail-mcp            # Run MCP server (default)

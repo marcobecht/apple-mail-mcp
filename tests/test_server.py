@@ -155,8 +155,22 @@ class TestGetEmails:
 
     @pytest.mark.asyncio
     @patch("apple_mail_mcp.server.execute_query_async")
-    async def test_filter_this_week_uses_days_ago(self, mock_exec):
-        """get_emails with filter='this_week' uses MailCore.daysAgo(7)."""
+    async def test_filter_last_7_days_uses_days_ago(self, mock_exec):
+        """get_emails with filter='last_7_days' uses MailCore.daysAgo(7)."""
+        mock_exec.return_value = []
+
+        from apple_mail_mcp.server import get_emails
+
+        await get_emails(filter="last_7_days")
+
+        call_args = mock_exec.call_args[0][0]
+        script = call_args.build()
+        assert "MailCore.daysAgo(7)" in script
+
+    @pytest.mark.asyncio
+    @patch("apple_mail_mcp.server.execute_query_async")
+    async def test_filter_this_week_alias(self, mock_exec):
+        """get_emails with filter='this_week' works as alias for last_7_days."""
         mock_exec.return_value = []
 
         from apple_mail_mcp.server import get_emails

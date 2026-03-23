@@ -5,7 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.7] - Unreleased
+## [0.1.8] - Unreleased
+
+### Fixed
+
+- **Watcher crash on file add** — `parse_emlx()` exceptions beyond `OSError`/`ValueError`/`UnicodeDecodeError` (e.g. malformed plist, missing headers) no longer kill the watcher thread. The watcher now skips unparseable files and continues processing.
+- **Attachment cache leak** — `_cleanup_old_attachments()` is now called automatically when extracting attachments, preventing unbounded disk usage from cached files.
+- **Attachment cache permissions** — cache directory is now created with `0o700` permissions to protect sensitive email attachment content.
+- **Empty search error messages** — search index errors (corrupt DB, SQLite issues) now return actionable error messages instead of empty strings. Suggests `apple-mail-mcp rebuild` when the index is broken.
+- **Misleading get_email timeout message** — when `get_email` times out, the error now checks whether account/mailbox were already provided and gives context-appropriate advice instead of always saying "Provide account/mailbox".
+
+### Changed
+
+- **Renamed `this_week` filter to `last_7_days`** — the filter returns a rolling 7-day window, not the current calendar week. `this_week` is still accepted as an alias for backwards compatibility. (#49)
+- **Updated patrickfreyer benchmark config** — `search_email_content` tool renamed to `search_emails` with new parameter names to match their latest API.
+- **Added `rusty_apple_mail_mcp` to benchmarks** — Rust-based competitor that reads Apple's Envelope Index directly (no JXA). First non-AppleScript competitor in the benchmark suite.
+
+## [0.1.7] - 2026-03-11
 
 ### Added
 
@@ -100,7 +116,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Disk-based sync for index building
 - Real-time file watcher for index updates
 
-[0.1.7]: https://github.com/imdinu/apple-mail-mcp/compare/v0.1.6...HEAD
+[0.1.8]: https://github.com/imdinu/apple-mail-mcp/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/imdinu/apple-mail-mcp/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/imdinu/apple-mail-mcp/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/imdinu/apple-mail-mcp/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/imdinu/apple-mail-mcp/compare/v0.1.3...v0.1.4

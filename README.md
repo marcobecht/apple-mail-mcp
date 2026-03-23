@@ -9,7 +9,7 @@
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![CI](https://github.com/imdinu/apple-mail-mcp/actions/workflows/lint.yml/badge.svg)](https://github.com/imdinu/apple-mail-mcp/actions/workflows/lint.yml)
 
-A fast MCP server for Apple Mail — disk-first email reading, **87x faster** batch fetching via JXA, and an FTS5 search index for **700–3500x faster** body search (~2ms vs ~7s).
+The only Apple Mail MCP server with **full-text email search**. Reliable on large mailboxes where other servers timeout — with 6 tools for reading, searching, and extracting email content.
 
 **[Read the docs](https://imdinu.github.io/apple-mail-mcp/)** for the full guide.
 
@@ -46,22 +46,21 @@ apple-mail-mcp index --verbose
 |------|---------|
 | `list_accounts()` | List email accounts |
 | `list_mailboxes(account?)` | List mailboxes |
-| `get_emails(filter?, limit?)` | Get emails — all, unread, flagged, today, this_week |
+| `get_emails(filter?, limit?)` | Get emails — all, unread, flagged, today, last_7_days |
 | `get_email(message_id)` | Get single email with full content + attachments |
 | `search(query, scope?)` | Search — all, subject, sender, body, attachments |
-| `get_attachment(message_id, filename)` | Extract attachment content (base64) |
+| `get_attachment(message_id, filename)` | Extract attachment to disk, or extract links |
 
 ## Performance
 
-| Scenario | Apple Mail MCP | Best alternative | Speedup |
-|----------|---------------|-----------------|---------|
-| Fetch single email | 6ms | unsupported | **Only one** (disk-first) |
-| Fetch 50 emails | 301ms | 13,800ms+ | **46x faster** |
-| Search (subject) | 10ms | 148ms | **15x faster** |
-| Search (body) | 22ms | unsupported | **Only one** |
-| List accounts | 118ms | 134ms | Fastest |
+Tested against [6 other Apple Mail MCP servers](https://imdinu.github.io/apple-mail-mcp/benchmarks/) on a 30K+ email mailbox:
 
-> Benchmarked against [5 other Apple Mail MCP servers](https://imdinu.github.io/apple-mail-mcp/benchmarks/) at the MCP protocol level.
+- **Only server** that completes all operations without timing out
+- **Only server** with full-text body search (FTS5 index, ~20ms)
+- **5ms** single email fetch via disk-first `.emlx` reading
+- **7–9ms** subject search via FTS5 (vs 230ms+ for AppleScript-based servers)
+
+![Capability Matrix](benchmark_overview.png)
 
 ## Configuration
 
@@ -97,7 +96,7 @@ If you used [supermemoryai/apple-mcp](https://github.com/supermemoryai/apple-mcp
 | `search_emails` | `search(query, scope?)` — 5 scopes: all, subject, sender, body, attachments |
 | `send_email` | Not yet supported (planned) |
 
-**What's different:** available on PyPI (`pipx install apple-mail-mcp`), disk-first single-email reads (~1-5ms via .emlx parsing), 87x faster batch fetching via JXA, FTS5 search index for ~2ms body search, and disk-based sync that avoids JXA timeouts and false-success responses.
+**What's different:** available on PyPI (`pipx install apple-mail-mcp`), full-text body search via FTS5 (~20ms), disk-first single-email reads (~5ms), reliable on large mailboxes (30K+) where AppleScript-based servers timeout.
 
 ## Development
 

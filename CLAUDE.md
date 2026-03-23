@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Fast MCP server for Apple Mail with disk-first email reads (~1-5ms via .emlx parsing), batch JXA property fetching for 87x faster multi-email performance, and an FTS5 search index for **700-3500x faster** body search (~2ms vs ~7s).
+The only Apple Mail MCP server with full-text email search. Reliable on large mailboxes (30K+) where other servers timeout. Disk-first email reads (~5ms via .emlx parsing), batch JXA property fetching, and an FTS5 search index for full-text body search (~20ms).
 
 ## Project Structure
 
@@ -33,7 +33,7 @@ src/apple_mail_mcp/
 |------|---------|----------------|
 | `list_accounts()` | List email accounts | - |
 | `list_mailboxes(account?)` | List mailboxes | account (optional) |
-| `get_emails(...)` | Unified listing | filter: all/unread/flagged/today/this_week |
+| `get_emails(...)` | Unified listing | filter: all/unread/flagged/today/last_7_days |
 | `get_email(id)` | Full email content + attachments | message_id |
 | `search(query, ...)` | Unified search | scope: all/subject/sender/body/attachments |
 | `get_attachment(id, filename)` | Extract attachment content | message_id, filename |
@@ -45,7 +45,7 @@ get_emails()                      # All emails (default)
 get_emails(filter="unread")       # Unread only
 get_emails(filter="flagged")      # Flagged only
 get_emails(filter="today")        # Received today
-get_emails(filter="this_week")    # Last 7 days
+get_emails(filter="last_7_days")  # Last 7 days
 ```
 
 ### search() Scopes
@@ -280,7 +280,7 @@ With the consolidated API, extend `get_emails()` filters or `search()` scopes:
 @mcp.tool
 async def get_emails(
     ...
-    filter: Literal["all", "unread", "flagged", "today", "this_week", "starred"] = "all",
+    filter: Literal["all", "unread", "flagged", "today", "last_7_days", "starred"] = "all",
     ...
 ):
     ...
@@ -311,7 +311,7 @@ JSON.stringify({{success: true, id: {message_id}}});
 MailCore.today()  // Date
 
 // Get N days ago at midnight
-MailCore.daysAgo(7)  // Date (for "this_week" filter)
+MailCore.daysAgo(7)  // Date (for "last_7_days" filter)
 
 // Format for JSON
 MailCore.formatDate(date)  // ISO string or null

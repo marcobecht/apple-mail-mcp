@@ -105,19 +105,17 @@ _register(
                 {"email_id": None},
             ),  # email_id discovered at runtime
             "search_subject": ToolCall(
-                "search_email_content",
+                "search_emails",
                 {
                     "account": BENCHMARK_ACCOUNT,
-                    "search_text": SEARCH_QUERY,
+                    "subject": SEARCH_QUERY,
                 },
             ),
             "search_body": ToolCall(
-                "search_email_content",
+                "search_emails",
                 {
                     "account": BENCHMARK_ACCOUNT,
-                    "search_text": SEARCH_QUERY,
-                    "search_subject": False,
-                    "search_body": True,
+                    "body": SEARCH_QUERY,
                 },
             ),
         },
@@ -225,5 +223,34 @@ _register(
             ),
         },
         notes="Go binary, no list_accounts or body search",
+    )
+)
+
+# 7. like-a-freedom/rusty_apple_mail_mcp (Rust, reads Envelope Index)
+_register(
+    Competitor(
+        name="rusty_apple_mail_mcp",
+        key="rusty",
+        command=[
+            f"{CACHE_DIR}/rusty-apple-mail-mcp"
+            "/target/release/rusty_apple_mail_mcp",
+        ],
+        tool_mapping={
+            "list_accounts": ToolCall(
+                "list_accounts", {"include_mailboxes": False}
+            ),
+            "get_emails": ToolCall(
+                "search_messages",
+                {"mailbox": "INBOX", "limit": 50},
+            ),
+            "get_email": ToolCall(
+                "get_message", {"message_id": None}
+            ),  # message_id is a string, not int
+            "search_subject": ToolCall(
+                "search_messages",
+                {"subject_query": SEARCH_QUERY, "limit": 50},
+            ),
+        },
+        notes="Rust binary, reads Apple Envelope Index directly",
     )
 )

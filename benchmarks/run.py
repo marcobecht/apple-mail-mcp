@@ -40,10 +40,11 @@ SCENARIOS = [
 ]
 
 
-def _discover_message_id(competitor: Competitor) -> int | None:
+def _discover_message_id(competitor: Competitor) -> int | str | None:
     """Discover a real message ID by calling get_emails(limit=1).
 
     Returns the ID from the first email, or None if discovery fails.
+    The ID type (int or str) is preserved from the competitor's response.
     """
     if "get_emails" not in competitor.supported_ops:
         return None
@@ -73,8 +74,15 @@ def _discover_message_id(competitor: Competitor) -> int | None:
         import json as _json
 
         payload = _json.loads(text)
-        # Handle list of emails or single email
-        emails = payload if isinstance(payload, list) else [payload]
+        # Handle list of emails, single email, or nested {messages: [...]}
+        if isinstance(payload, list):
+            emails = payload
+        elif isinstance(payload, dict) and "messages" in payload:
+            emails = payload["messages"]
+        elif isinstance(payload, dict):
+            emails = [payload]
+        else:
+            return None
         if not emails:
             return None
 
@@ -82,7 +90,7 @@ def _discover_message_id(competitor: Competitor) -> int | None:
         email = emails[0]
         for key in ("id", "email_id", "message_id"):
             if key in email and email[key] is not None:
-                return int(email[key])
+                return email[key]
     except Exception:
         pass
     return None
@@ -104,7 +112,7 @@ def run_competitor(
     print(f"{'─' * 50}")
 
     # Discover a message ID for get_email scenario
-    discovered_id: int | None = None
+    discovered_id: int | str | None = None
     if "get_email" in scenarios and "get_email" in competitor.supported_ops:
         print("  discovering message_id... ", end="", flush=True)
         discovered_id = _discover_message_id(competitor)
@@ -151,7 +159,7 @@ def run_competitor(
                     )
                     continue
                 # Replace the None placeholder with the real ID
-                for key in ("message_id", "email_id"):
+                for key in ("message_id", "email_id", "id"):
                     if key in tool_args:
                         tool_args[key] = discovered_id
 
