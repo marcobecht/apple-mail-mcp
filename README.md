@@ -89,6 +89,26 @@ Tested against [6 other Apple Mail MCP servers](https://imdinu.github.io/apple-m
 }
 ```
 
+## CLI Usage
+
+All tools are also available as standalone CLI commands (no MCP server needed):
+
+```bash
+apple-mail-mcp search "quarterly report" --scope subject
+apple-mail-mcp search "invoice" --after 2026-01-01 --limit 10
+apple-mail-mcp read 12345
+apple-mail-mcp emails --filter unread --limit 10
+apple-mail-mcp accounts
+apple-mail-mcp mailboxes --account Work
+apple-mail-mcp extract 12345 invoice.pdf
+```
+
+All commands output JSON. Generate a [Claude Code skill](https://imdinu.github.io/apple-mail-mcp/configuration/#cli-commands) for CLI-based access:
+
+```bash
+apple-mail-mcp integrate claude > ~/.claude/skills/apple-mail.md
+```
+
 ## Migrating from apple-mcp?
 
 If you used [supermemoryai/apple-mcp](https://github.com/supermemoryai/apple-mcp) (archived January 2026), apple-mail-mcp is a maintained alternative for the **Mail portion** specifically. Notes, Messages, Contacts, Calendar, and Reminders are out of scope.

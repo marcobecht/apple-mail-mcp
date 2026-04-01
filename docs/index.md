@@ -1,6 +1,6 @@
 # Apple Mail MCP
 
-The only Apple Mail MCP server with **full-text email search**. Reliable on large mailboxes where other servers timeout — with 6 tools for reading, searching, and extracting email content.
+The only Apple Mail MCP server with **full-text email search**. Reliable on large mailboxes where other servers timeout — with 8 tools for reading, searching, and extracting email content. Also works as a standalone CLI.
 
 ---
 
@@ -17,7 +17,7 @@ Tested against [6 other Apple Mail MCP servers](benchmarks.md) on a 30K+ email m
 
 ## Key Features
 
-- **6 focused MCP tools** — list accounts, list mailboxes, get emails, get email, search, get attachment
+- **8 MCP tools + CLI** — search, read, list, extract attachments and links — usable as MCP server or standalone CLI
 - **Unified filtering** — unread, flagged, today, last 7 days
 - **FTS5 search index** — full-text body search in ~2ms with BM25 ranking
 - **Real-time updates** — `--watch` flag for automatic index updates
@@ -48,11 +48,27 @@ pipx install apple-mail-mcp
 
 That's it. Ask Claude to search your emails, get today's messages, or find unread mail.
 
+## CLI Usage (No MCP Required)
+
+All tools also work as standalone CLI commands:
+
+```bash
+apple-mail-mcp search "quarterly report" --after 2026-01-01
+apple-mail-mcp read 12345
+apple-mail-mcp emails --filter unread --limit 10
+```
+
+Generate a Claude Code skill for CLI-based access:
+
+```bash
+apple-mail-mcp integrate claude > ~/.claude/skills/apple-mail.md
+```
+
 ## Next Steps
 
 - [Getting Started](getting-started.md) — first-use walkthrough
 - [Installation](installation.md) — all installation methods
-- [Tools](tools.md) — full API reference for all 6 tools
+- [Tools](tools.md) — full API reference for all 8 tools
 - [Search & Indexing](search.md) — FTS5 deep dive
 - [Architecture](architecture.md) — how it works under the hood
 - [Architecture Deep Dive](architecture-deep-dive.md) — `.emlx` format, JXA IPC, FTS5 index design

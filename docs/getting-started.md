@@ -83,8 +83,26 @@ apple-mail-mcp --watch
 
 This monitors `~/Library/Mail/V10/` for new `.emlx` files and indexes them in real-time.
 
+## Alternative: CLI Without MCP
+
+Don't need an MCP server? Use the CLI directly:
+
+```bash
+apple-mail-mcp search "quarterly report" --after 2026-01-01
+apple-mail-mcp read 12345
+apple-mail-mcp emails --filter unread --limit 10
+```
+
+Generate a Claude Code skill for CLI-based access:
+
+```bash
+apple-mail-mcp integrate claude > ~/.claude/skills/apple-mail.md
+```
+
+See [Configuration](configuration.md#cli-commands) for the full command list.
+
 ## Next Steps
 
 - [Installation](installation.md) — alternative install methods (pipx, uv, from source)
 - [Configuration](configuration.md) — environment variables and defaults
-- [Tools](tools.md) — full reference for all 6 MCP tools
+- [Tools](tools.md) — full reference for all 8 MCP tools
