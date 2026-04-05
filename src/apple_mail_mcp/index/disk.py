@@ -802,7 +802,7 @@ def get_attachment_content(
 
             attachment_part_idx += 1
 
-            if fname != target_filename:
+            if fname.strip().lower() != target_filename.strip().lower():
                 continue
 
             # Primary path: embedded MIME payload
