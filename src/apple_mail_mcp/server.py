@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shutil
 import tempfile
 import time
@@ -59,8 +60,10 @@ def _cleanup_old_attachments(max_age_hours: int = 24) -> None:
 
 
 # Strategy 3 safety limits for get_email's all-mailbox scan
-STRATEGY3_TIMEOUT = 15  # seconds
-STRATEGY3_MAX_MAILBOXES = 50
+STRATEGY3_TIMEOUT = int(os.environ.get("APPLE_MAIL_STRATEGY3_TIMEOUT", "15"))
+STRATEGY3_MAX_MAILBOXES = int(
+    os.environ.get("APPLE_MAIL_STRATEGY3_MAX_MAILBOXES", "50")
+)
 
 
 # ========== Response Type Definitions ==========

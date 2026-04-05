@@ -35,7 +35,7 @@ src/apple_mail_mcp/
 | `list_mailboxes(account?)` | List mailboxes | account (optional) |
 | `get_emails(...)` | Unified listing | filter: all/unread/flagged/today/last_7_days |
 | `get_email(id)` | Full email content + attachments | message_id |
-| `search(query, ...)` | Unified search | scope, before, after, highlight |
+| `search(query, ...)` | Unified search | scope, before, after, offset, highlight |
 | `get_email_links(id)` | Extract links from an email | message_id |
 | `get_email_attachment(id, filename)` | Extract attachment content | message_id, filename |
 | `get_attachment(id, filename)` | *Deprecated* — use `get_email_attachment()` | message_id, filename |
@@ -60,6 +60,7 @@ search("deadline", scope="body")           # Body only (FTS5)
 search("pdf", scope="attachments")         # By attachment filename (SQL)
 search("invoice", after="2025-01-01")      # Date-range filtering
 search("meeting", highlight=True)          # Highlighted results
+search("meeting", limit=20, offset=20)    # Page 2 of results
 ```
 
 ## Architecture

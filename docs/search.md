@@ -186,6 +186,23 @@ search("quarterly report", highlight=True)
 
 When highlighting is enabled, the `content_snippet` field in each result contains the matched terms wrapped in markers.
 
+## Pagination
+
+Use `offset` with `limit` to page through large result sets:
+
+```python
+# First page (results 1-20)
+search("meeting", limit=20)
+
+# Second page (results 21-40)
+search("meeting", limit=20, offset=20)
+
+# Third page (results 41-60)
+search("meeting", limit=20, offset=40)
+```
+
+Pagination works with all scopes, date filters, and highlighting.
+
 ## Performance
 
 ### Search Speed

@@ -138,6 +138,7 @@ Search emails with automatic FTS5 optimization. Uses the FTS5 index for fast sea
 | `mailbox` | `string?` | `None` | Mailbox filter. `None` = search all (FTS) or default (JXA) |
 | `scope` | `string?` | `all` | Search scope (see below) |
 | `limit` | `int?` | `20` | Max results |
+| `offset` | `int?` | `0` | Skip first N results (for pagination) |
 | `exclude_mailboxes` | `list?` | `["Drafts"]` | Mailboxes to exclude (FTS/attachment scopes only) |
 | `before` | `string?` | `None` | Only return emails before this date (YYYY-MM-DD) |
 | `after` | `string?` | `None` | Only return emails after this date (YYYY-MM-DD) |
@@ -173,6 +174,9 @@ search("deadline", limit=5)
 
 search("invoice", after="2025-01-01", before="2025-12-31")
 # Emails from 2025 only
+
+search("meeting", limit=20, offset=20)
+# Page 2 of results (skip first 20)
 
 search("meeting", highlight=True)
 # Results with matching terms highlighted

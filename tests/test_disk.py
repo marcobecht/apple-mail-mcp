@@ -48,6 +48,33 @@ class TestParseEmlx:
         result = parse_emlx(large_path)
         assert result is None
 
+    def test_parse_handles_bad_byte_count(self, tmp_path: Path):
+        """Corrupt byte count should return None, not crash."""
+        bad = tmp_path / "100.emlx"
+        bad.write_bytes(b"not_a_number\nFrom: x@y.z\n\nBody")
+        assert parse_emlx(bad) is None
+
+    def test_parse_handles_truncated_content(self, tmp_path: Path):
+        """Byte count exceeds actual content length."""
+        trunc = tmp_path / "101.emlx"
+        trunc.write_bytes(b"99999\nFrom: x@y.z\n\nShort")
+        # Should not crash — parse_emlx guards against this
+        result = parse_emlx(trunc)
+        # May return None or a partial result, but must not raise
+        assert result is None or result.id == 101
+
+    def test_parse_handles_empty_file(self, tmp_path: Path):
+        """Zero-byte file should return None."""
+        empty = tmp_path / "102.emlx"
+        empty.write_bytes(b"")
+        assert parse_emlx(empty) is None
+
+    def test_parse_handles_no_newline(self, tmp_path: Path):
+        """File with no newline separator should return None."""
+        no_nl = tmp_path / "103.emlx"
+        no_nl.write_bytes(b"12345")
+        assert parse_emlx(no_nl) is None
+
     def test_parse_extracts_message_id_from_filename(self, tmp_path: Path):
         # Message ID comes from the filename stem
         emlx_content = b"10\nFrom: x@y.z\n\nBody"
@@ -138,9 +165,7 @@ class TestParseEmlxExtendedFields:
         # date_sent = Date header (Jan 15)
         assert "2024-01-15" in result.date_sent
 
-    def test_date_received_falls_back_to_date_header(
-        self, tmp_path: Path
-    ):
+    def test_date_received_falls_back_to_date_header(self, tmp_path: Path):
         """Without Received header, date_received falls back to Date."""
         mime = (
             b"From: bob@example.com\n"
@@ -906,7 +931,6 @@ EMBEDDEDDATA
         assert b"EMBEDDEDDATA" in raw_bytes
         assert mime_type == "application/octet-stream"
 
-
     def test_rejects_oversized_external(self, tmp_path: Path):
         """External file exceeding MAX_EMLX_SIZE must be rejected (#47)."""
         emlx = _build_partial_tree(
@@ -1057,18 +1081,14 @@ class TestDetectMailVersion:
 
         assert _detect_mail_version() == "V10"
 
-    def test_fallback_when_no_mail_dir(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_fallback_when_no_mail_dir(self, tmp_path: Path, monkeypatch):
         """Returns V10 when ~/Library/Mail doesn't exist."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         from apple_mail_mcp.index.disk import _detect_mail_version
 
         assert _detect_mail_version() == "V10"
 
-    def test_find_mail_directory_caches(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_find_mail_directory_caches(self, tmp_path: Path, monkeypatch):
         """find_mail_directory() caches its result."""
         import apple_mail_mcp.index.disk as disk_mod
 
