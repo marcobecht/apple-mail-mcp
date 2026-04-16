@@ -322,6 +322,20 @@ def rebuild(
             help="Rebuild only this mailbox (requires --account)",
         ),
     ] = None,
+    since: Annotated[
+        str | None,
+        cyclopts.Parameter(
+            name=["--since", "-s"],
+            help="Only index emails on or after this date (e.g. 2023-01-01)",
+        ),
+    ] = None,
+    yes: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name=["--yes", "-y"],
+            help="Skip confirmation prompt",
+        ),
+    ] = False,
     verbose: Annotated[
         bool,
         cyclopts.Parameter(name=["--verbose", "-v"], help="Show progress"),
@@ -335,10 +349,29 @@ def rebuild(
 
     The --account flag accepts either a friendly name (e.g., "Imperial")
     or a UUID. Friendly names are resolved via JXA.
+
+    The --since flag limits indexing to emails on or after the given date.
+    When set, the per-mailbox cap is removed so all matching emails are
+    indexed. The indexer shows an estimate and asks for confirmation.
     """
     if mailbox and not account:
         print("Error: --mailbox requires --account", file=sys.stderr)
         sys.exit(1)
+
+    # Validate --since format
+    since_iso: str | None = None
+    if since:
+        try:
+            from datetime import date as _date
+
+            parsed = _date.fromisoformat(since)
+            since_iso = parsed.isoformat()  # normalise to YYYY-MM-DD
+        except ValueError:
+            print(
+                f"Error: invalid date '{since}'. Use YYYY-MM-DD format.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     from .index import IndexManager
 
@@ -361,10 +394,33 @@ def rebuild(
         scope = f"account {account}"
         if account_uuid != account:
             scope += f" ({account_uuid})"
+    if since_iso:
+        scope += f" since {since_iso}"
+
+    manager = IndexManager()
+
+    # Show estimate and ask for confirmation
+    if since_iso and not yes:
+        print(f"Estimating rebuild for {scope}...")
+        est_count, est_mb = manager.estimate_rebuild(
+            account=account_uuid, since=since_iso
+        )
+        print()
+        print(f"  Estimated emails:  {est_count:,}")
+        print(f"  Estimated size:    {_format_size(est_mb)}")
+        print()
+        try:
+            answer = input("Proceed? [Y/n] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            sys.exit(0)
+        if answer and answer not in ("y", "yes"):
+            print("Aborted.")
+            sys.exit(0)
+        print()
 
     print(f"Rebuilding {scope}...")
 
-    manager = IndexManager()
     start = time.time()
 
     def progress(current: int, total: int | None, message: str) -> None:
@@ -376,6 +432,7 @@ def rebuild(
             account=account_uuid,
             mailbox=mailbox,
             progress_callback=progress if verbose else None,
+            since=since_iso,
         )
         elapsed = time.time() - start
 

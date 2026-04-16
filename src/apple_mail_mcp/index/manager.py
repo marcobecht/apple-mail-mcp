@@ -183,10 +183,146 @@ class IndexManager:
             return True
         return stats.staleness_hours > get_index_staleness_hours()
 
+    def estimate_rebuild(
+        self,
+        account: str | None = None,
+        since: str | None = None,
+    ) -> tuple[int, float]:
+        """
+        Estimate the number of emails and index size for a rebuild.
+
+        Queries Apple Mail's Envelope Index database for a fast count
+        with date filtering.  Falls back to a filesystem walk if the
+        Envelope Index is unavailable.
+
+        Args:
+            account: Optional account UUID to scope the estimate.
+            since: Optional ISO-date cutoff (e.g. "2023-01-01").
+                   Only emails on or after this date are counted.
+
+        Returns:
+            (estimated_email_count, estimated_size_mb)
+        """
+        from .disk import find_mail_directory
+
+        mail_dir = find_mail_directory()
+
+        # Try the Envelope Index for a fast, date-aware count
+        count = self._estimate_from_envelope(mail_dir, account, since)
+
+        if count is None:
+            # Fallback: count .emlx files on disk (no date filter
+            # without parsing, so this is an upper bound).
+            from .disk import scan_emlx_files
+
+            count = sum(1 for _ in scan_emlx_files(mail_dir, account=account))
+
+        # Heuristic: ~89 KB per email based on current index
+        # (2747 MB / 30931 emails ≈ 89 KB)
+        estimated_mb = count * 89 / 1024
+
+        return count, estimated_mb
+
+    @staticmethod
+    def _estimate_from_envelope(
+        mail_dir: Path,
+        account: str | None,
+        since: str | None,
+    ) -> int | None:
+        """Query Apple Mail's Envelope Index for an email count.
+
+        Returns None if the database can't be read.
+        """
+        import sqlite3 as _sqlite3
+
+        # Envelope Index lives inside the V10 directory
+        envelope_path = mail_dir / "MailData" / "Envelope Index"
+        if not envelope_path.exists():
+            # Also try one level up (upstream bug workaround)
+            envelope_path = mail_dir.parent / "MailData" / "Envelope Index"
+        if not envelope_path.exists():
+            return None
+
+        try:
+            conn = _sqlite3.connect(
+                f"file:{envelope_path}?mode=ro", uri=True
+            )
+            conn.row_factory = _sqlite3.Row
+
+            # Build query with optional filters
+            # Core Data epoch: seconds since 2001-01-01
+            CORE_DATA_EPOCH = 978307200
+            where_clauses: list[str] = []
+            params: list = []
+
+            if account:
+                # mailbox URL contains the account UUID after the scheme
+                # (e.g. "ews://UUID/…" or "mailbox://UUID/…")
+                where_clauses.append("mb.url LIKE ?")
+                params.append(f"%{account}%")
+
+            if since:
+                # The Envelope Index stores date_received as seconds,
+                # but the epoch varies: some accounts use Core Data
+                # (since 2001) and others use Unix (since 1970).
+                # We detect which by checking if max(date_received)
+                # exceeds a threshold — Unix timestamps for dates
+                # after ~2001 are > 978307200, while Core Data
+                # timestamps only reach that value around ~2032.
+                from datetime import datetime as _dt, timezone as _tz
+
+                cutoff = _dt.fromisoformat(since).replace(tzinfo=_tz.utc)
+                unix_ts = cutoff.timestamp()
+
+                # Detect epoch: sample max timestamp for this scope
+                detect_where = " AND ".join(
+                    c for c in where_clauses
+                )  # account filter only
+                detect_sql = "SELECT MAX(m.date_received) FROM messages m"
+                if detect_where:
+                    detect_sql += (
+                        " LEFT JOIN mailboxes mb"
+                        " ON m.mailbox = mb.ROWID WHERE "
+                        + detect_where
+                    )
+                max_ts = conn.execute(
+                    detect_sql, params[:]
+                ).fetchone()[0]
+
+                # If max timestamp > 10^9, it's Unix epoch
+                if max_ts and max_ts > 1_000_000_000:
+                    cutoff_ts = unix_ts
+                else:
+                    cutoff_ts = unix_ts - CORE_DATA_EPOCH
+
+                where_clauses.append("m.date_received >= ?")
+                params.append(cutoff_ts)
+
+            where = ""
+            if where_clauses:
+                where = "WHERE " + " AND ".join(where_clauses)
+
+            row = conn.execute(
+                f"""
+                SELECT COUNT(*) as cnt
+                FROM messages m
+                LEFT JOIN mailboxes mb ON m.mailbox = mb.ROWID
+                {where}
+                """,
+                params,
+            ).fetchone()
+
+            conn.close()
+            return row["cnt"] if row else None
+
+        except Exception:
+            return None
+
     def build_from_disk(
         self,
         progress_callback: Callable[[int, int | None, str], None] | None = None,
         account: str | None = None,
+        since: str | None = None,
     ) -> int:
         """
         Build the index by reading .emlx files directly from disk.
@@ -199,6 +335,9 @@ class IndexManager:
             account: Optional account UUID to scope the rebuild.
                      If provided, only this account is cleared and re-indexed.
                      Other accounts are left untouched.
+            since: Optional ISO-date cutoff (e.g. "2023-01-01").
+                   Only emails on or after this date are indexed.
+                   When set, the per-mailbox cap is ignored.
 
         Returns:
             Number of emails indexed
@@ -249,6 +388,7 @@ class IndexManager:
         batch_size = 500
 
         _skipped = 0
+        _date_skipped = 0
         try:
             for email_data in scan_all_emails(mail_dir, account=account):
                 # Skip emails outside the target account (scoped rebuild).
@@ -259,10 +399,18 @@ class IndexManager:
                     _skipped += 1
                     continue
 
+                # Skip emails before the --since cutoff
+                if since:
+                    date_str = email_data.get("date_received", "")
+                    if date_str and date_str < since:
+                        _date_skipped += 1
+                        continue
+
                 key = (email_data["account"], email_data["mailbox"])
                 count = mailbox_counts.get(key, 0)
 
-                if count >= max_per_mailbox:
+                # When --since is set, ignore the per-mailbox cap
+                if not since and count >= max_per_mailbox:
                     capped_mailboxes.add(key)
                     continue
 
@@ -312,6 +460,19 @@ class IndexManager:
                         total_indexed,
                         total_indexed,
                         f"Skipped {_skipped} emails from other accounts",
+                    )
+
+            if since and _date_skipped > 0:
+                logger.info(
+                    "Date filter: skipped %d emails before %s",
+                    _date_skipped,
+                    since,
+                )
+                if progress_callback:
+                    progress_callback(
+                        total_indexed,
+                        total_indexed,
+                        f"Skipped {_date_skipped} emails before {since}",
                     )
 
             # Update sync state for whatever we managed to index
@@ -504,6 +665,7 @@ class IndexManager:
         account: str | None = None,
         mailbox: str | None = None,
         progress_callback: Callable[[int, int | None, str], None] | None = None,
+        since: str | None = None,
     ) -> int:
         """
         Force rebuild of the index.
@@ -512,12 +674,15 @@ class IndexManager:
             account: Optional account UUID to rebuild (all if None)
             mailbox: Optional mailbox to rebuild (all in account if None)
             progress_callback: Optional progress callback
+            since: Optional ISO-date cutoff (e.g. "2023-01-01")
 
         Returns:
             Number of emails re-indexed
         """
         # build_from_disk handles scoped deletion internally
-        return self.build_from_disk(progress_callback, account=account)
+        return self.build_from_disk(
+            progress_callback, account=account, since=since
+        )
 
     def get_indexed_message_ids(
         self, account: str | None = None, mailbox: str | None = None
