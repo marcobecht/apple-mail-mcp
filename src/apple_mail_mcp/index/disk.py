@@ -802,7 +802,7 @@ def get_attachment_content(
 
             attachment_part_idx += 1
 
-            if fname.strip().lower() != target_filename.strip().lower():
+            if fname != target_filename:
                 continue
 
             # Primary path: embedded MIME payload
@@ -980,6 +980,7 @@ def _extract_links_from_message(
 def scan_emlx_files(
     mail_dir: Path,
     exclude_mailboxes: set[str] | None = None,
+    account: str | None = None,
 ) -> Iterator[Path]:
     """
     Find all .emlx files in the Mail directory.
@@ -988,6 +989,8 @@ def scan_emlx_files(
         mail_dir: Path to ~/Library/Mail/V10/
         exclude_mailboxes: Mailbox names to skip (e.g. {"Drafts"}).
             Uses APPLE_MAIL_INDEX_EXCLUDE_MAILBOXES config if None.
+        account: Optional account UUID to scope the scan to a single
+            account directory. Much faster than scanning all accounts.
 
     Yields:
         Paths to .emlx files
@@ -997,8 +1000,11 @@ def scan_emlx_files(
 
         exclude_mailboxes = get_index_exclude_mailboxes()
 
+    # Scope to a single account directory if specified
+    scan_root = mail_dir / account if account else mail_dir
+
     # .emlx files are in: account-uuid/mailbox.mbox/Data/x/y/Messages/
-    for emlx_path in mail_dir.rglob("*.emlx"):
+    for emlx_path in scan_root.rglob("*.emlx"):
         # Skip excluded mailboxes by checking .mbox dir name
         if exclude_mailboxes:
             parts = emlx_path.relative_to(mail_dir).parts
@@ -1013,7 +1019,9 @@ def scan_emlx_files(
         yield emlx_path
 
 
-def scan_all_emails(mail_dir: Path) -> Iterator[dict]:
+def scan_all_emails(
+    mail_dir: Path, account: str | None = None
+) -> Iterator[dict]:
     """
     Scan all emails from the Mail directory.
 
@@ -1022,6 +1030,7 @@ def scan_all_emails(mail_dir: Path) -> Iterator[dict]:
 
     Args:
         mail_dir: Path to ~/Library/Mail/V10/
+        account: Optional account UUID to scope the scan.
 
     Yields:
         Email dicts with: id, account, mailbox, subject, sender,
@@ -1034,7 +1043,7 @@ def scan_all_emails(mail_dir: Path) -> Iterator[dict]:
         metadata = {}
 
     # Scan .emlx files and combine with metadata
-    for emlx_path in scan_emlx_files(mail_dir):
+    for emlx_path in scan_emlx_files(mail_dir, account=account):
         try:
             parsed = parse_emlx(emlx_path)
         except Exception as e:
@@ -1050,8 +1059,8 @@ def scan_all_emails(mail_dir: Path) -> Iterator[dict]:
 
         # Infer account/mailbox from path if not in metadata
         if not meta:
-            account, mailbox = _infer_account_mailbox(emlx_path, mail_dir)
-            meta = {"account": account, "mailbox": mailbox}
+            acct, mbox = _infer_account_mailbox(emlx_path, mail_dir)
+            meta = {"account": acct, "mailbox": mbox}
 
         yield {
             "id": msg_id,

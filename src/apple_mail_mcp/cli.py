@@ -280,17 +280,6 @@ def status(
     print("=" * 40)
     print(f"Location:     {get_index_path()}")
     print(f"Emails:       {stats.email_count:,}")
-    if stats.disk_email_count is not None:
-        coverage = (
-            stats.email_count / stats.disk_email_count * 100
-            if stats.disk_email_count > 0
-            else 0
-        )
-        print(
-            f"On disk:      {stats.disk_email_count:,}"
-            f" ({coverage:.0f}% indexed)"
-        )
-    print(f"Attachments:  {stats.attachment_count:,}")
     print(f"Mailboxes:    {stats.mailbox_count}")
     print(f"Database:     {_format_size(stats.db_size_mb)}")
     print()
@@ -343,6 +332,9 @@ def rebuild(
 
     Clears existing data and rebuilds from disk.
     Optionally scope to a specific account or mailbox.
+
+    The --account flag accepts either a friendly name (e.g., "Imperial")
+    or a UUID. Friendly names are resolved via JXA.
     """
     if mailbox and not account:
         print("Error: --mailbox requires --account", file=sys.stderr)
@@ -350,11 +342,25 @@ def rebuild(
 
     from .index import IndexManager
 
+    # Resolve friendly account name → UUID if needed
+    account_uuid = account
+    if account and not _looks_like_uuid(account):
+        account_uuid = _resolve_account_name(account)
+        if not account_uuid:
+            print(
+                f"Error: account '{account}' not found. "
+                "Use 'apple-mail-mcp accounts' to list accounts.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
     scope = "entire index"
-    if account and mailbox:
+    if account_uuid and mailbox:
         scope = f"{account}/{mailbox}"
-    elif account:
+    elif account_uuid:
         scope = f"account {account}"
+        if account_uuid != account:
+            scope += f" ({account_uuid})"
 
     print(f"Rebuilding {scope}...")
 
@@ -367,7 +373,7 @@ def rebuild(
 
     try:
         count = manager.rebuild(
-            account=account,
+            account=account_uuid,
             mailbox=mailbox,
             progress_callback=progress if verbose else None,
         )
@@ -511,6 +517,37 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
+def _looks_like_uuid(value: str) -> bool:
+    """Check if a string looks like a UUID (contains dashes and hex chars)."""
+    import re
+
+    return bool(re.match(r"^[0-9A-Fa-f-]{36}$", value))
+
+
+def _resolve_account_name(name: str) -> str | None:
+    """Resolve a friendly account name to its UUID via JXA.
+
+    Args:
+        name: Friendly account name (e.g., "Imperial")
+
+    Returns:
+        UUID string, or None if not found
+    """
+    from .server import list_accounts
+
+    try:
+        accounts = _run_async(list_accounts())
+    except Exception:
+        return None
+
+    # Case-insensitive match
+    name_lower = name.lower()
+    for acct in accounts:
+        if acct.get("name", "").lower() == name_lower:
+            return acct["id"]
+    return None
+
+
 def _print_json(data):
     """Print data as formatted JSON to stdout."""
     import json
@@ -546,10 +583,6 @@ def cli_search(
         int,
         cyclopts.Parameter(name=["--limit", "-n"], help="Max results"),
     ] = 20,
-    offset: Annotated[
-        int,
-        cyclopts.Parameter(name="--offset", help="Skip first N results"),
-    ] = 0,
     before: Annotated[
         str | None,
         cyclopts.Parameter(help="Before date (YYYY-MM-DD)"),
@@ -574,7 +607,6 @@ def cli_search(
                 mailbox=mailbox,
                 scope=scope,
                 limit=limit,
-                offset=offset,
                 before=before,
                 after=after,
                 highlight=highlight,

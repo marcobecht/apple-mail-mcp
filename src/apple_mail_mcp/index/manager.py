@@ -54,8 +54,6 @@ class IndexStats:
     db_size_mb: float
     staleness_hours: float | None
     capped_mailboxes: int = 0
-    attachment_count: int = 0
-    disk_email_count: int | None = None
 
 
 # SearchResult is imported from .search to avoid duplication
@@ -169,20 +167,6 @@ class IndexManager:
         )
         capped_mailboxes = cursor.fetchone()[0]
 
-        # Attachment count
-        cursor = conn.execute("SELECT COUNT(*) FROM attachments")
-        attachment_count = cursor.fetchone()[0]
-
-        # Disk email count (best-effort, skip if no FDA)
-        disk_email_count = None
-        try:
-            from .disk import find_mail_directory, get_disk_inventory
-
-            mail_dir = find_mail_directory()
-            disk_email_count = len(get_disk_inventory(mail_dir))
-        except (FileNotFoundError, PermissionError):
-            pass
-
         return IndexStats(
             email_count=email_count,
             mailbox_count=mailbox_count,
@@ -190,8 +174,6 @@ class IndexManager:
             db_size_mb=db_size_mb,
             staleness_hours=staleness_hours,
             capped_mailboxes=capped_mailboxes,
-            attachment_count=attachment_count,
-            disk_email_count=disk_email_count,
         )
 
     def is_stale(self) -> bool:
@@ -204,6 +186,7 @@ class IndexManager:
     def build_from_disk(
         self,
         progress_callback: Callable[[int, int | None, str], None] | None = None,
+        account: str | None = None,
     ) -> int:
         """
         Build the index by reading .emlx files directly from disk.
@@ -213,6 +196,9 @@ class IndexManager:
 
         Args:
             progress_callback: Optional callback(current, total, message)
+            account: Optional account UUID to scope the rebuild.
+                     If provided, only this account is cleared and re-indexed.
+                     Other accounts are left untouched.
 
         Returns:
             Number of emails indexed
@@ -234,23 +220,45 @@ class IndexManager:
         capped_mailboxes: set[tuple[str, str]] = set()
         total_indexed = 0
 
-        # Clear existing data for rebuild
-        conn.execute("DELETE FROM attachments")
-        conn.execute("DELETE FROM emails")
-        conn.execute("DELETE FROM sync_state")
+        # Clear existing data for rebuild scope
+        if account:
+            # Scoped rebuild: only delete the target account
+            conn.execute(
+                "DELETE FROM attachments WHERE email_rowid IN "
+                "(SELECT rowid FROM emails WHERE account = ?)",
+                (account,),
+            )
+            conn.execute("DELETE FROM emails WHERE account = ?", (account,))
+            conn.execute(
+                "DELETE FROM sync_state WHERE account = ?", (account,)
+            )
+        else:
+            conn.execute("DELETE FROM attachments")
+            conn.execute("DELETE FROM emails")
+            conn.execute("DELETE FROM sync_state")
 
         # Disable triggers during bulk insert for performance
         conn.execute("DROP TRIGGER IF EXISTS emails_ai")
         conn.execute("DROP TRIGGER IF EXISTS emails_ad")
         conn.execute("DROP TRIGGER IF EXISTS emails_au")
+        conn.commit()
 
         batch: list[tuple] = []
         # Deferred attachment rows: (email_tuple_index, attachments)
         batch_attachments: list[tuple[int, list]] = []
         batch_size = 500
 
+        _skipped = 0
         try:
-            for email_data in scan_all_emails(mail_dir):
+            for email_data in scan_all_emails(mail_dir, account=account):
+                # Skip emails outside the target account (scoped rebuild).
+                # This is a safety net — scan_all_emails already scopes
+                # the filesystem walk, but metadata from the Envelope Index
+                # could map a file to a different account UUID.
+                if account and email_data["account"] != account:
+                    _skipped += 1
+                    continue
+
                 key = (email_data["account"], email_data["mailbox"])
                 count = mailbox_counts.get(key, 0)
 
@@ -294,22 +302,34 @@ class IndexManager:
                 self._flush_batch(conn, batch, batch_attachments)
                 total_indexed += len(batch)
 
+            if account and _skipped > 0:
+                logger.info(
+                    "Scoped rebuild: skipped %d emails from other accounts",
+                    _skipped,
+                )
+                if progress_callback:
+                    progress_callback(
+                        total_indexed,
+                        total_indexed,
+                        f"Skipped {_skipped} emails from other accounts",
+                    )
+
             # Update sync state for whatever we managed to index
             if mailbox_counts:
                 now = datetime.now().isoformat()
-                for (account, mailbox), count in mailbox_counts.items():
+                for (acct, mbox), count in mailbox_counts.items():
                     conn.execute(
                         """INSERT OR REPLACE INTO sync_state
                            (account, mailbox, last_sync, message_count)
                            VALUES (?, ?, ?, ?)""",
-                        (account, mailbox, now, count),
+                        (acct, mbox, now, count),
                     )
                 conn.commit()
 
-            # Rebuild FTS index (must run even if scan crashed
-            # mid-iteration, otherwise emails table has rows
-            # but FTS5 is empty)
-            if total_indexed > 0:
+            # Rebuild FTS index. For full rebuilds this is needed when
+            # new emails were indexed; for scoped rebuilds we must always
+            # rebuild because we deleted rows with triggers disabled.
+            if total_indexed > 0 or account:
                 if progress_callback:
                     msg = "Building search index..."
                     progress_callback(total_indexed, total_indexed, msg)
@@ -444,7 +464,6 @@ class IndexManager:
         *,
         before: str | None = None,
         after: str | None = None,
-        offset: int = 0,
         highlight: bool = False,
     ) -> list[SearchResult]:
         """
@@ -460,7 +479,6 @@ class IndexManager:
                 or "content")
             before: Exclude emails on/after this date (YYYY-MM-DD)
             after: Include emails on/after this date (YYYY-MM-DD)
-            offset: Skip first N results (default: 0)
             highlight: Use FTS5 highlight/snippet for results
 
         Returns:
@@ -479,7 +497,6 @@ class IndexManager:
             exclude_mailboxes=exclude_mailboxes,
             before=before,
             after=after,
-            offset=offset,
         )
 
     def rebuild(
@@ -492,30 +509,15 @@ class IndexManager:
         Force rebuild of the index.
 
         Args:
-            account: Optional account to rebuild (all if None)
+            account: Optional account UUID to rebuild (all if None)
             mailbox: Optional mailbox to rebuild (all in account if None)
             progress_callback: Optional progress callback
 
         Returns:
             Number of emails re-indexed
         """
-        conn = self._get_conn()
-
-        # Delete existing entries for rebuild scope
-        if account and mailbox:
-            conn.execute(
-                "DELETE FROM emails WHERE account = ? AND mailbox = ?",
-                (account, mailbox),
-            )
-        elif account:
-            conn.execute("DELETE FROM emails WHERE account = ?", (account,))
-        else:
-            conn.execute("DELETE FROM emails")
-
-        conn.commit()
-
-        # Rebuild from disk
-        return self.build_from_disk(progress_callback)
+        # build_from_disk handles scoped deletion internally
+        return self.build_from_disk(progress_callback, account=account)
 
     def get_indexed_message_ids(
         self, account: str | None = None, mailbox: str | None = None
@@ -638,7 +640,6 @@ class IndexManager:
         *,
         before: str | None = None,
         after: str | None = None,
-        offset: int = 0,
     ) -> list[dict]:
         """Search attachments by filename using SQL LIKE.
 
@@ -650,7 +651,6 @@ class IndexManager:
             exclude_mailboxes: Mailboxes to exclude from results
             before: Exclude emails on/after this date (YYYY-MM-DD)
             after: Include emails on/after this date (YYYY-MM-DD)
-            offset: Skip first N results (default: 0)
 
         Returns:
             List of dicts with message_id, account, mailbox,
@@ -667,7 +667,6 @@ class IndexManager:
             exclude_mailboxes=exclude_mailboxes,
             before=before,
             after=after,
-            offset=offset,
         )
 
     def get_email_attachments(
