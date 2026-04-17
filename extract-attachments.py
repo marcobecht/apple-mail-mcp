@@ -43,18 +43,67 @@ from pathlib import Path
 # Where the index lives
 INDEX_DB = Path.home() / ".apple-mail-mcp" / "index.db"
 
+# Default output: iCloud Drive so all Macs have access
+ICLOUD_EMAIL = (
+    Path.home()
+    / "Library"
+    / "Mobile Documents"
+    / "com~apple~CloudDocs"
+    / "Email"
+)
+DEFAULT_OUTPUT = str(ICLOUD_EMAIL)
+
 # Minimum file size to extract (skip tiny inline images)
 MIN_SIZE = 10 * 1024  # 10 KB
 
-# Account friendly names
-ACCOUNT_NAMES = {
-    "3C599C37-9E93-4AF9-A065-BB3FFD09F6DB": "ULB",
-    "87A6D123-1CA5-42F8-9596-6440DF899C02": "ECGI",
-    "0ADE153C-2D2F-4FE2-A984-4656B2BB056E": "Imperial",
-    "11A996A6-70A5-47B6-90C0-B0FCB667FCE9": "Gmail",
-    "B2A55256-96BC-4DE8-83B3-969EF0A21CC0": "ECGIx",
-    "A597E052-14C8-4E8D-8E69-2C128CC51286": "iCloud",
+# Lazy-loaded account name map (UUID → friendly name)
+_account_names: dict[str, str] | None = None
+
+
+def _get_account_names() -> dict[str, str]:
+    """Resolve account UUIDs to friendly names from the index DB."""
+    global _account_names
+    if _account_names is not None:
+        return _account_names
+
+    _account_names = {}
+    try:
+        conn = sqlite3.connect(str(INDEX_DB))
+        rows = conn.execute(
+            "SELECT DISTINCT account FROM emails"
+        ).fetchall()
+        conn.close()
+
+        # Try JXA for friendly names
+        import subprocess
+
+        result = subprocess.run(
+            [
+                "osascript",
+                "-l",
+                "JavaScript",
+                "-e",
+                """
+var Mail = Application("Mail");
+var accts = Mail.accounts();
+var map = {};
+for (var i = 0; i < accts.length; i++) {
+    map[accts[i].id()] = accts[i].name();
 }
+JSON.stringify(map);
+""",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            _account_names = json.loads(result.stdout.strip())
+    except Exception:
+        pass
+
+    # Fallback: use first 8 chars of UUID for any unmapped accounts
+    return _account_names
 
 # Skip these filename patterns (inline images, signatures, etc.)
 SKIP_PATTERNS = [
@@ -206,8 +255,8 @@ def main():
     parser.add_argument(
         "--output",
         "-o",
-        default=str(Path.home() / "Projects" / "email-attachments"),
-        help="Output directory (default: ~/Projects/email-attachments)",
+        default=DEFAULT_OUTPUT,
+        help="Output directory (default: iCloud Drive/Email)",
     )
     parser.add_argument(
         "--dry-run",
@@ -260,7 +309,7 @@ def main():
     if args.account:
         # Resolve friendly name
         uuid = args.account
-        for uid, name in ACCOUNT_NAMES.items():
+        for uid, name in _get_account_names().items():
             if name.lower() == args.account.lower():
                 uuid = uid
                 break
@@ -303,7 +352,7 @@ def main():
         # Build output path
         year = date_str[:4] if len(date_str) >= 4 else "unknown"
         category = categorize(subject, filename)
-        acct_name = ACCOUNT_NAMES.get(account, account[:8])
+        acct_name = _get_account_names().get(account, account[:8])
         sender_dir = sender_dirname(sender)
         safe_filename = sanitize(filename, max_len=120)
 
